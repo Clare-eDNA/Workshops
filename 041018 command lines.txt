@@ -1,0 +1,434 @@
+To cancel or quit: 'control' C
+
+### QIIME2 Moving Pictures tutorial (https://docs.qiime2.org/2018.8/tutorials/moving-pictures/)
+
+## make the directories I will be working in, in this case:
+> mkdir movingpicturestute
+
+## qiime2 works in conda environment, can check by:
+> conda info
+or
+> conda info --envs
+# the output looks like this:
+
+conda environments:
+base                  *  /Users/anatomyuser/miniconda2
+obitools                 /Users/anatomyuser/miniconda2/envs/obitools
+qiime2-2018.8            /Users/anatomyuser/miniconda2/envs/qiime2-2018.8
+
+# start qiime2:
+> source activate qiime2-2018.8 #the 'qiim2-2018.8' is the title from the conda environment list
+
+## download my samples and relevant data:
+# the metadata file (.tsv = tab separated values, can be opened in Excel) has the info on the sample ID and Illumina sequencing barcode sequences, primer sequences, and other info on samples. The easy way to make our own is open a pre-existing metadata file in Excel and fill in with my own metadata.
+# We need our own metadata file for qiime2
+# Note: wget works in unix/linux environments (wget = 'web get')
+
+> wget \
+  -O "sample-metadata.tsv" \
+  "https://data.qiime2.org/2018.8/tutorials/moving-pictures/sample_metadata.tsv"
+> mkdir emp-single-end-sequences
+> wget \
+  -O "emp-single-end-sequences/barcodes.fastq.gz" \
+  "https://data.qiime2.org/2018.8/tutorials/moving-pictures/emp-single-end-sequences/barcodes.fastq.gz"
+
+> wget \
+  -O "emp-single-end-sequences/sequences.fastq.gz" \
+  "https://data.qiime2.org/2018.8/tutorials/moving-pictures/emp-single-end-sequences/sequences.fastq.gz"
+
+# note: the commands above will download the data into the folder I just made
+
+## import the sequences, and turn them into required qiime2 file:
+> qiime tools import \
+  --type EMPSingleEndSequences \
+  --input-path emp-single-end-sequences \
+  --output-path emp-single-end-sequences.qza
+
+# Note: to get more information on the command:
+> qiime tools import --help
+# Note: file formats: 	.qza = qiime2 artifact
+						.qzv = qiime2 visualisation (can be opened in webpage)
+
+# The output looks like this:
+Imported emp-single-end-sequences as EMPSingleEndDirFmt to emp-single-end-sequences.qza
+
+## Demultiplexing
+> qiime demux emp-single \
+  --i-seqs emp-single-end-sequences.qza \
+  --m-barcodes-file sample-metadata.tsv \
+  --m-barcodes-column BarcodeSequence \
+  --o-per-sample-sequences demux.qza
+
+# The output looks like this:
+Saved SampleData[SequencesWithQuality] to: demux.qza
+
+# We can look at the artifact format:
+> mkdir demux_export
+> qiime tools export --help
+
+Usage: qiime tools export [OPTIONS]
+
+  Exporting extracts (and optionally transforms) data stored inside an
+  Artifact or Visualization. Note that Visualizations cannot be transformed
+  with --output-format
+
+Options:
+  --input-path PATH     Path to file that should be exported  [required]
+  --output-path PATH    Path to file or directory where data should be
+                        exported to  [required]
+  --output-format TEXT  Format which the data should be exported as. This
+                        option cannot be used with Visualizations
+  --help                Show this message and exit.
+
+> qiime tools export --input-path demux.qza --output-path demux_export/
+# The ouput can be viewed in the computer's finder and you can see there are different .fastq.gz files (gzip compressed files) labelled with different samples based on the different barcodes
+
+# Summarise the data by visualising the results:
+> qiime demux summarize \
+  --i-data demux.qza \
+  --o-visualization demux.qzv
+  
+# The output looks like this: 
+Saved Visualization to: demux.qzv
+# To view the output:
+> qiime tools view --help
+
+Usage: qiime tools view [OPTIONS] VISUALIZATION_PATH
+
+  Displays a QIIME 2 Visualization until the command exits. To open a QIIME
+  2 Visualization so it can be used after the command exits, use 'qiime
+  extract'.
+
+Options:
+  --index-extension TEXT  The extension of the index file that should be
+                          opened. [default: html]
+  --help                  Show this message and exit.
+
+> qiime tools view demux.qzv
+
+
+## Sequence quality control and feature table construction
+
+# Using DADA2
+# denoising:
+# "In the demux.qzv quality plots, we see that the quality of the initial bases seems to be high, so we won’t trim any bases from the beginning of the sequences. The quality seems to drop off around position 120, so we’ll truncate our sequences at 120 bases." Although looking at the .qzv plot above, it is still kind of low quality just before 120 and so we can adjust it <120, depending on how much of that 'noise' will be an issue.
+# These parameters are:
+#	--p-trim-left 0 \
+#  	--p-trunc-len 120 \
+
+> qiime dada2 denoise-single \
+  --i-demultiplexed-seqs demux.qza \
+  --p-trim-left 0 \
+  --p-trunc-len 120 \
+  --o-representative-sequences rep-seqs-dada2.qza \
+  --o-table table-dada2.qza \
+  --o-denoising-stats stats-dada2.qza
+
+# The output looks like this:
+Saved FeatureTable[Frequency] to: table-dada2.qza
+Saved FeatureData[Sequence] to: rep-seqs-dada2.qza
+Saved SampleData[DADA2Stats] to: stats-dada2.qza
+
+# We can examine the .qza files outside of qiime2 by using their export tool to transform/output it as a flat file:
+
+> qiime tools export --input-path table-dada2.qza --output-path ./ 
+# The output looks like this:
+Exported table-dada2.qza as BIOMV210DirFmt to directory ./
+# File looks like: 
+feature-table.biom
+# The .biom file format (http://biom-format.org/) can be opened in a BIOM programme in qiime2, and convert the file into a .tsv
+# Aside: MEGAN can input .biom files (and other programmes, see http://biom-format.org/)
+> biom convert -i feature-table.biom -o feature-table.tsv --to-tsv
+# We can look at the help info for the 'biom convert' tool to see the list of parameters and commands 
+# The .tsv file can be used in R and other packages to run other analyses, because the feature-table is a frequency table
+
+> qiime tools export --input-path stats-dada2.qza --output-path ./ 
+# The output looks like this:
+Exported stats-dada2.qza as DADA2StatsDirFmt to directory ./
+# File looks like:
+stats.tsv
+
+# Create visualisation:
+# metadata tabulate:
+> qiime metadata tabulate \
+  --m-input-file stats-dada2.qza \
+  --o-visualization stats-dada2.qzv
+# Output file looks like this:
+Saved Visualization to: stats-dada2.qzv
+# To view the .qzv
+> qiime tools view stats-dada2.qzv
+
+
+## "If you’d like to continue the tutorial using this FeatureTable (opposed to the Deblur feature table generated in Option 2), run the following commands:"
+> mv rep-seqs-dada2.qza rep-seqs.qza
+  mv table-dada2.qza table.qza
+
+
+
+## Taxonomic analysis
+# We’ll do the taxonomic analysis using a pre-trained Naive Bayes classifier and the q2-feature-classifier plugin:
+
+# Download the file; a 16S database that has been trained for the dataset we will be using:
+> wget \
+  -O "gg-13-8-99-515-806-nb-classifier.qza" \
+  "https://data.qiime2.org/2018.8/common/gg-13-8-99-515-806-nb-classifier.qza"
+
+# Using the taxonomic plugin:
+> qiime feature-classifier classify-sklearn \
+  --i-classifier gg-13-8-99-515-806-nb-classifier.qza \
+  --i-reads rep-seqs.qza \
+  --o-classification taxonomy.qza
+
+  qiime metadata tabulate \
+  --m-input-file taxonomy.qza \
+  --o-visualization taxonomy.qzv
+  
+# The output files looks like this:
+Saved FeatureData[Taxonomy] to: taxonomy.qza
+Saved Visualization to: taxonomy.qzv
+
+# Generate a bar plot
+> qiime taxa barplot \
+  --i-table table.qza \
+  --i-taxonomy taxonomy.qza \
+  --m-metadata-file sample-metadata.tsv \
+  --o-visualization taxa-bar-plots.qzv
+# The output file looks like this:
+Saved Visualization to: taxa-bar-plots.qzv
+
+# View the output file:
+> qiime tools view taxa-bar-plots.qzv
+# There are drop-down menus that we can look at the different taxonomic levels, and sort the samples by different orders
+# And we can download as CSV format at the taxonomic level you are viewing the data is on, and use the data in R
+# We can download/export all of the levels with command line and view the files outside of qiime2:
+> qiime tools export --input-path taxa-bar-plots.qzv  --output-path barplot
+# The output looks like:
+Exported taxa-bar-plots.qzv as Visualization to directory barplot
+
+
+## Ecology analyses, scroll to last third of this document (afternoon session)
+
+
+
+
+
+
+
+
+
+
+
+### OBITOOLS, Wolves diet based on DNA metabarcoding (https://pythonhosted.org/OBITools/wolves.html)
+# Tip: you will notice that successive new files created at each step are renamed by '.' (full stops) but we can use '_' (underscores) to do the same. 
+
+> mkdir wolvesdiet
+
+## Download data:
+> wget https://pythonhosted.org/OBITools/_downloads/wolf_tutorial.zip
+> unzip wolf_tutorial.zip
+> cd wolf_tutorial
+# The way this tutorial runs, everything stays within 'wolf_tutorial'
+
+## Recover full sequence reads from forward and reverse partial reads
+# The tool used here is illuminapairedend, and we can view the relevant options/parameters:
+> illuminapairedend -h
+
+> illuminapairedend --score-min=40 -r wolf_R.fastq wolf_F.fastq > wolf.fastq
+# Note: Phred score of 40 is extremely good threshold. Phred score of 20 is 'fairly bad' (1 in 100 reads can have an error). By setting minimum score at 40 will remove sequence reads with scores below 40.
+
+## Remove unaligned sequence records
+# Uses obigrep tool to remove unaligned sequences in the data.
+# grep looks for certain/specified patterns in a specified file, and it outputs the data with those patterns [i.e. it is like a search function in the command line]
+> grep -c 'PATTERN' FILE_NAME # will give out the counts of how many data/sequences with the specified pattern
+
+> obigrep -h
+
+> obigrep -p 'mode!="joined"' wolf.fastq > wolf.ali.fastq
+# NOTE: There is the single and double quote notations in the command line above. The order is very important.
+# mode!="joined" means that if the value of the mode attribute is different from joined, the corresponding sequence record will be kept.
+
+# Checking the output of the obigrep:
+# head and tail commands take a peek at the files
+# obihead command looks at the first sequence; in contrast to head command that looks at the first line
+> obihead -n 1 wolf.ali.fastq
+
+
+## Assign each sequence record to the corresponding sample/marker combination
+# This is similar to the demultiplexing command in qiime2, but obitools keeps the separated samples in the single FASTQ file
+
+> ngsfilter -h
+
+> ngsfilter -t wolf_diet_ngsfilter.txt -u unidentified.fastq wolf.ali.fastq > \
+  wolf.ali.assigned.fastq
+# -u [FILENAME] is used to store the sequences unassigned to any sample, and we can examine these to check for lab cross-contamination, etc
+
+
+## Dereplicate reads into uniq sequences
+> obiuniq -h
+
+> obiuniq -m sample wolf.ali.assigned.fastq > wolf.ali.assigned.uniq.fasta
+# -m sample => merge by sample name; is used to keep the information of the samples of origin for each unique sequence.
+# Note, we also converted the fastq file into a fasta
+# This tool tells us the frequency of each sequence within the sequencing library. To keep these counts (and remove excess stuff) we use obiannotate to clean up the file
+> obiannotate -h
+
+> obiannotate -k count -k merged_sample \
+  wolf.ali.assigned.uniq.fasta > $$ ; mv $$ wolf.ali.assigned.uniq.fasta
+# ; represents a separate command (i.e. two lines that was combined in a single line)
+# $$ represents a temporary memory destination in which we can dump data into, temporarily, and then use it in another command, to rewrite original file
+# -k KEEP, --keep=KEEP, and you can keep multiple characteristics
+
+# Alternatively:
+> cp wolf.ali.assigned.fastq wolf.ali.assigned.uniq.before.annotate.fasta
+> obinannotate -k count -k merged_sample \
+  wolf.ali.assigned.uniq.before.annotate.fasta > \
+  wolf.ali.assigned.uniq.after.annotate.fasta
+> mv wolf.ali.assigned.uniq.before.annotate.fasta wolf.ali.assigned.fastq
+
+
+## Denoise the sequence dataset
+
+# Get the count statistics with obistat, we are using a pipe:
+> obistat -c count wolf.ali.assigned.uniq.fasta |  \
+  sort -nk1 | head -20
+# The result of obistat shows that: 
+count      count     total
+1          3504      3504
+# This means 3504 singletons in this dataset, likely to be errors
+
+# Arbitrarily deciding to keep only the sequences having a count greater or equal to 10 and a length shorter than 80 bp, using obigrep
+> obigrep -l 80 -p 'count>=10' wolf.ali.assigned.uniq.fasta > \
+    wolf.ali.assigned.uniq.c10.l80.fasta
+# -l minimum length of 80
+# -p 'count>=10' option means that the python expression count>=10 must be evaluated to True for each sequence to be kept
+
+# Clean the sequences for PCR/sequencing errors with obiclean
+> obiclean -s merged_sample -r 0.05 -H \
+  wolf.ali.assigned.uniq.c10.l80.fasta > wolf.ali.assigned.uniq.c10.l80.clean.fasta
+# 'Head' (-H) in this case refers to the sequences we want to keep - the 'TRUE' sequences with biologically important information
+
+
+## Taxonomic assignment of sequences
+# Using ecotag
+> ecotag -d DATABASE_FILE -R REFERENCE_SEQUENCES_FILE SAMPLE.fasta > OUTPUT.fasta
+
+> ecotag -d embl_r117 -R db_v05_r117.fasta wolf.ali.assigned.uniq.c10.l80.clean.fasta > \
+  wolf.ali.assigned.uniq.c10.l80.clean.tag.fasta
+
+# Generate the final result table
+# Some unuseful attributes can be removed at this stage, using obiannotate to clean up the file:
+
+> obiannotate  --delete-tag=scientific_name_by_db --delete-tag=obiclean_samplecount \
+  --delete-tag=obiclean_count --delete-tag=obiclean_singletoncount \
+  --delete-tag=obiclean_cluster --delete-tag=obiclean_internalcount \
+  --delete-tag=obiclean_head --delete-tag=taxid_by_db --delete-tag=obiclean_headcount \
+  --delete-tag=id_status --delete-tag=rank_by_db --delete-tag=order_name \
+  --delete-tag=order wolf.ali.assigned.uniq.c10.l80.clean.tag.fasta > \
+  wolf.ali.assigned.uniq.c10.l80.clean.tag.ann.fasta
+
+# sorted by decreasing order of count using obisort
+> obisort -k count -r wolf.ali.assigned.uniq.c10.l80.clean.tag.ann.fasta >  \
+  wolf.ali.assigned.uniq.c10.l80.clean.tag.ann.sort.fasta
+
+# Finally, a tab-delimited file that can be open by excel or R is generated using obitab
+> obitab -o wolf.ali.assigned.uniq.c10.l80.clean.tag.ann.sort.fasta > \
+  wolf.ali.assigned.uniq.c10.l80.clean.tag.ann.sort.tab
+# .tab file format is a TABLE format, and we can view it on Excel (import as a text file), or manually change file format to .csv in your Finder window (and then change text to columns)
+
+
+
+
+
+
+
+
+
+
+### QIIME2 Alpha and beta diversity analysis (https://docs.qiime2.org/2018.8/tutorials/moving-pictures/#alpha-and-beta-diversity-analysis)
+
+## Generate a tree for phylogenetic diversity analyses
+# Is an optional step - it is useful if using conserved gene sequences
+> qiime phylogeny align-to-tree-mafft-fasttree \
+  --i-sequences rep-seqs.qza \
+  --o-alignment aligned-rep-seqs.qza \
+  --o-masked-alignment masked-aligned-rep-seqs.qza \
+  --o-tree unrooted-tree.qza \
+  --o-rooted-tree rooted-tree.qza
+# Outputs four different files, and looks like this:
+Saved FeatureData[AlignedSequence] to: aligned-rep-seqs.qza
+Saved FeatureData[AlignedSequence] to: masked-aligned-rep-seqs.qza
+Saved Phylogeny[Unrooted] to: unrooted-tree.qza
+Saved Phylogeny[Rooted] to: rooted-tree.qza
+
+
+## Alpha and beta diversity analysis
+
+# The core-metrics-phylogenetic method, which rarefies a FeatureTable[Frequency] to a user-specified depth, computes several alpha and beta diversity metrics, and generates principle coordinates analysis (PCoA) plots using Emperor for each of the beta diversity metrics: 
+> qiime diversity core-metrics-phylogenetic \
+  --i-phylogeny rooted-tree.qza \
+  --i-table table.qza \
+  --p-sampling-depth 1109 \
+  --m-metadata-file sample-metadata.tsv \
+  --output-dir core-metrics-results
+# Note: '--p-sampling-depth 1109' part was arbitrarily defined and can be determined by looking at the summaries of the feature table (DADA2):
+> qiime feature-table summarize \
+  --i-table table.qza \
+  --o-visualization table.qzv \
+  --m-sample-metadata-file sample-metadata.tsv
+qiime feature-table tabulate-seqs \
+  --i-data rep-seqs.qza \
+  --o-visualization rep-seqs.qzv 
+# In the table output, going to the interactive sample data tab, and scroll to the counts. At the end of the table show the lowest sequence counts < 1109
+
+# In many Illumina runs you’ll observe a few samples that have very low sequence counts. You will typically want to exclude those from the analysis by choosing a larger value for the sampling depth at this stage.
+
+# A whole bunch of files are outputted in a new directory for these statistical analyses: 
+core-metrics-results/
+# To view .qzv files:
+> qiime tools view FILENAME.qzv
+# Note: we can send the .qzv file to colleagues and they can view in browser (https://view.qiime2.org/)
+
+# Other diversity analysis (make sure you are outside of the core-metrics-results folder):
+> qiime diversity alpha-group-significance \
+  --i-alpha-diversity core-metrics-results/faith_pd_vector.qza \
+  --m-metadata-file sample-metadata.tsv \
+  --o-visualization core-metrics-results/faith-pd-group-significance.qzv
+
+ qiime diversity alpha-group-significance \
+  --i-alpha-diversity core-metrics-results/evenness_vector.qza \
+  --m-metadata-file sample-metadata.tsv \
+  --o-visualization core-metrics-results/evenness-group-significance.qzv
+
+> qiime diversity beta-group-significance \
+  --i-distance-matrix core-metrics-results/unweighted_unifrac_distance_matrix.qza \
+  --m-metadata-file sample-metadata.tsv \
+  --m-metadata-column BodySite \
+  --o-visualization core-metrics-results/unweighted-unifrac-body-site-significance.qzv \
+  --p-pairwise
+
+  qiime diversity beta-group-significance \
+  --i-distance-matrix core-metrics-results/unweighted_unifrac_distance_matrix.qza \
+  --m-metadata-file sample-metadata.tsv \
+  --m-metadata-column Subject \
+  --o-visualization core-metrics-results/unweighted-unifrac-subject-group-significance.qzv \
+  --p-pairwise
+  
+
+## Visualising the diversity statistics in RStudio to make publication-quality figures (https://github.com/ldutoit/metabarcoding_Rvisuals)
+# We might want to jump into R to manipulate the data and have more control/modification
+# E.g. we might want to change the colours of the plots to match the overall publication figures. QIIME2 picks their own colours, which might not give the cohesion in your paper (i.e. keeping the same colour for same sample ID).
+
+# To download all files in the github folder:
+# Copy the url (in Clone or Download button) from the github webpage, into terminal
+> git clone https://github.com/ldutoit/metabarcoding_Rvisuals.git
+# This makes its own folder.
+
+# In RStudio, open Project, select the folder we just downloaded.
+
+1.# Looking at 'bray_curtis_pcoa_ordination.txt' file, which was exported from qiime2 as a flat file
+# Looking at 'visualizePCOA.R' file, has a store of the code. Execute the codes.
+
+2.# Looking at 'barplot_export_family_level_resolution.csv' and executing code from 'visualiseFamilytable.R'
+# This particular example demonstrates how we can filter our dataset to focus/graph on particular Family (i.e. a subset of the resulting data).
+# Also demonstrates forcing the data into different plot types
+
